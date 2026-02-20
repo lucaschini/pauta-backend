@@ -1,6 +1,6 @@
 Ok, funciona.
 Próximos passos:
- - Metropoles, cnn, uol
+  - Metropoles, cnn, uol
  - Passar frontend pra next.
  - Separar responsabilidades do backend.
  - Refatorar backend para usar hash.

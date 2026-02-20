@@ -217,6 +217,58 @@ export async function scrapeEstadaoSP(limit = 20) {
   }
 }
 
+// O Globo
+export async function scrapeOGlobo(limit = 20) {
+  const browser = await getBrowser();
+  const page = await getPage(browser);
+
+  try {
+    await page.goto("https://oglobo.globo.com/ultimas-noticias/", {
+      waitUntil: "networkidle2",
+      timeout: 30000,
+    });
+
+    return await page.evaluate((limit) => {
+      const results = [];
+      const cards = document.querySelectorAll("div.feed-post");
+
+      for (const card of cards) {
+        if (results.length >= limit) break;
+
+        const a = card.querySelector("a.feed-post-link");
+        if (!a || !a.href.includes(".ghtml")) continue;
+
+        const url = a.href;
+
+        // Captura do título
+        const title = (
+          a.querySelector("p")?.innerText ||
+          a.getAttribute("aria-label") ||
+          a.innerText
+        )
+          .replace(/\s+/g, " ")
+          .trim();
+
+        if (title.length < 10) continue;
+
+        const dateElement = card.querySelector("span.feed-post-datetime");
+        const publishedAt = dateElement ? dateElement.textContent.trim() : null;
+
+        results.push({
+          id: url,
+          source: "oglobo",
+          title,
+          url,
+          publishedAt,
+        });
+      }
+      return results;
+    }, limit);
+  } finally {
+    await page.close();
+  }
+}
+
 // ─── DISPATCHER ───────────────────────────────────────────────────────────────
 
 export async function scrapeSource(source, limit = 20) {
@@ -230,6 +282,9 @@ export async function scrapeSource(source, limit = 20) {
       break;
     case "estadao":
       articles = await scrapeEstadaoSP(limit);
+      break;
+    case "oglobo":
+      articles = await scrapeOGlobo(limit);
       break;
     default:
       throw new Error(`Scraper não implementado para: ${source.id}`);
