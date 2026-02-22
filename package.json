@@ -1,12 +1,13 @@
 {
   "name": "pauta-backend",
   "version": "1.0.0",
-  "description": "Backend de agregação de RSS para o painel Pauta",
+  "description": "Backend de agregação para o painel Pauta",
   "type": "module",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js"
+    "postinstall": "npx puppeteer browsers install chrome"
   },
   "dependencies": {
     "cors": "^2.8.5",
