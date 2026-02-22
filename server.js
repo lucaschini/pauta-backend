@@ -27,7 +27,7 @@ app.use(express.json());
 // ─── ROTAS HTTP ───────────────────────────────────────────────────────────────
 
 app.get("/", (req, res) => {
-  res.sendFile(join(__dirname, "painel-noticias.html"));
+  res.json({ name: "pauta-backend", status: "ok" });
 });
 
 app.get("/feed", async (req, res) => {
