@@ -18,8 +18,6 @@ function notify(sourceId) {
   listeners.forEach((fn) => fn(payload));
 }
 
-// ─── REFRESH DE UMA FONTE ─────────────────────────────────────────────────────
-
 export async function refreshSource(sourceId) {
   const source = SOURCES.find((s) => s.id === sourceId);
   if (!source) {
@@ -55,15 +53,11 @@ export async function refreshSource(sourceId) {
   }
 }
 
-// ─── AQUECIMENTO PARALELO ─────────────────────────────────────────────────────
-
 export async function warmCache() {
   console.log("[cache] aquecendo em paralelo...");
   await Promise.allSettled(SOURCES.map((s) => refreshSource(s.id)));
   console.log("[cache] pronto");
 }
-
-// ─── REFRESH AUTOMÁTICO POR FONTE (TTL INDIVIDUAL) ────────────────────────────
 
 export function startAutoRefresh() {
   SOURCES.forEach((source) => {
@@ -71,8 +65,6 @@ export function startAutoRefresh() {
   });
   console.log(`[cache] auto-refresh a cada ${CACHE_TTL_MS / 1000}s por fonte`);
 }
-
-// ─── LEITURA DO CACHE ─────────────────────────────────────────────────────────
 
 export function getCached(sourceId) {
   return cache[sourceId] || null;
