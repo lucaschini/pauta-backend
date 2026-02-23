@@ -173,8 +173,8 @@ export async function scrapeEstadaoSP(limit = 20) {
   const page = await getPage(browser);
   try {
     await page.goto("https://www.estadao.com.br/sao-paulo/", {
-      waitUntil: "networkidle2",
-      timeout: 30000,
+      waitUntil: "domcontentloaded",
+      timeout: 60000,
     });
     await page.waitForFunction(
       () => window.Fusion?.contentCache?.["story-feed-query"],
@@ -225,8 +225,8 @@ export async function scrapeOGlobo(limit = 20) {
 
   try {
     await page.goto("https://oglobo.globo.com/ultimas-noticias/", {
-      waitUntil: "networkidle2",
-      timeout: 30000,
+      waitUntil: "domcontentloaded",
+      timeout: 60000,
     });
 
     return await page.evaluate((limit) => {
