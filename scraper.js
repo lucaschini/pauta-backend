@@ -47,66 +47,62 @@ function dedup(articles) {
 }
 
 // ─── G1 SP ────────────────────────────────────────────────────────────────────
-// Estrutura (confirmada no HTML real):
-//   div.feed-post
-//     div.feed-post-body-title > h2 > a.feed-post-link   ← link, título em <p>
-//     div.feed-post-metadata > span.feed-post-datetime   ← "Há 6 minutos"
-
 export async function scrapeG1SP(limit = 20) {
   const browser = await getBrowser();
   const page = await getPage(browser);
-
   try {
     await page.goto("https://g1.globo.com/sp/sao-paulo/ultimas-noticias/", {
       waitUntil: "networkidle2",
       timeout: 30000,
     });
 
-    // CORREÇÃO 1: Esperar especificamente que pelo menos um timestamp tenha texto
-    // Isso garante que o script de "tempo relativo" do G1 já rodou.
+    // Espera o bstn expor os dados embutidos
     await page
-      .waitForFunction(
-        () => {
-          const el = document.querySelector(".feed-post-datetime");
-          return el && el.textContent.trim().length > 0;
-        },
-        { timeout: 15000 },
-      )
-      .catch(() => console.log("Aviso: Timestamps não carregaram a tempo."));
+      .waitForFunction(() => window.bstn?.debugEmbedData, { timeout: 15000 })
+      .catch(() => {});
 
     return await page.evaluate((limit) => {
       const results = [];
-      // O container principal de cada notícia no G1 SP é 'div.feed-post'
-      const cards = document.querySelectorAll("div.feed-post");
 
+      // ESTRATÉGIA 1: JSON embutido via bstn (tem datas ISO perfeitas)
+      try {
+        const embedData = window.bstn?.debugEmbedData?.();
+        if (embedData?.items?.length) {
+          for (const item of embedData.items) {
+            if (results.length >= limit) break;
+            const title = item.content?.title?.replace(/\s+/g, " ").trim();
+            const url = item.content?.url;
+            if (!title || title.length < 10 || !url?.includes(".ghtml"))
+              continue;
+            results.push({
+              id: url,
+              source: "g1",
+              title,
+              url,
+              publishedAt: item.publication || item.lastPublication || null,
+            });
+          }
+          if (results.length > 0) return results;
+        }
+      } catch (e) {}
+
+      // ESTRATÉGIA 2: fallback DOM
+      const cards = document.querySelectorAll("div.feed-post");
       for (const card of cards) {
         if (results.length >= limit) break;
-
         const a = card.querySelector("a.feed-post-link");
         if (!a || !a.href.includes(".ghtml")) continue;
-
-        const url = a.href;
-
-        // Captura do título
-        const title = (
-          a.querySelector("p")?.innerText ||
-          a.getAttribute("aria-label") ||
-          a.innerText
-        )
+        const title = (a.querySelector("p")?.innerText || a.innerText)
           .replace(/\s+/g, " ")
           .trim();
-
         if (title.length < 10) continue;
-
-        const dateElement = card.querySelector(".feed-post-datetime");
-        const publishedAt = dateElement ? dateElement.textContent.trim() : null;
-
+        const dateEl = card.querySelector(".feed-post-datetime");
         results.push({
-          id: url,
+          id: a.href,
           source: "g1",
           title,
-          url,
-          publishedAt,
+          url: a.href,
+          publishedAt: dateEl?.textContent.trim() || null,
         });
       }
       return results;
@@ -218,49 +214,63 @@ export async function scrapeEstadaoSP(limit = 20) {
   }
 }
 
-// O Globo
+// ─── O GLOBO ──────────────────────────────────────────────────────────────────
 export async function scrapeOGlobo(limit = 20) {
   const browser = await getBrowser();
   const page = await getPage(browser);
-
   try {
     await page.goto("https://oglobo.globo.com/ultimas-noticias/", {
-      waitUntil: "domcontentloaded",
+      waitUntil: "networkidle2", // <— mudança: domcontentloaded → networkidle2
       timeout: 60000,
     });
 
+    // Mesma estratégia: espera o bstn
+    await page
+      .waitForFunction(() => window.bstn?.debugEmbedData, { timeout: 15000 })
+      .catch(() => {});
+
     return await page.evaluate((limit) => {
       const results = [];
-      const cards = document.querySelectorAll("div.feed-post");
 
+      // ESTRATÉGIA 1: JSON embutido
+      try {
+        const embedData = window.bstn?.debugEmbedData?.();
+        if (embedData?.items?.length) {
+          for (const item of embedData.items) {
+            if (results.length >= limit) break;
+            const title = item.content?.title?.replace(/\s+/g, " ").trim();
+            const url = item.content?.url;
+            if (!title || title.length < 10 || !url?.includes(".ghtml"))
+              continue;
+            results.push({
+              id: url,
+              source: "oglobo",
+              title,
+              url,
+              publishedAt: item.publication || item.lastPublication || null,
+            });
+          }
+          if (results.length > 0) return results;
+        }
+      } catch (e) {}
+
+      // ESTRATÉGIA 2: fallback DOM
+      const cards = document.querySelectorAll("div.feed-post");
       for (const card of cards) {
         if (results.length >= limit) break;
-
         const a = card.querySelector("a.feed-post-link");
         if (!a || !a.href.includes(".ghtml")) continue;
-
-        const url = a.href;
-
-        // Captura do título
-        const title = (
-          a.querySelector("p")?.innerText ||
-          a.getAttribute("aria-label") ||
-          a.innerText
-        )
+        const title = (a.querySelector("p")?.innerText || a.innerText)
           .replace(/\s+/g, " ")
           .trim();
-
         if (title.length < 10) continue;
-
-        const dateElement = card.querySelector("span.feed-post-datetime");
-        const publishedAt = dateElement ? dateElement.textContent.trim() : null;
-
+        const dateEl = card.querySelector("span.feed-post-datetime");
         results.push({
-          id: url,
+          id: a.href,
           source: "oglobo",
           title,
-          url,
-          publishedAt,
+          url: a.href,
+          publishedAt: dateEl?.textContent.trim() || null,
         });
       }
       return results;
