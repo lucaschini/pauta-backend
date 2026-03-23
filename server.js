@@ -21,7 +21,9 @@ const httpServer = createServer(app);
 const PORT = process.env.PORT || 3001;
 const CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutos
 
-app.use(cors());
+app.use(cors(
+  origin: [process.env.FRONTEND_URL, "http://localhost:3000"],
+));
 app.use(express.json());
 
 // ─── ROTAS HTTP ───────────────────────────────────────────────────────────────
