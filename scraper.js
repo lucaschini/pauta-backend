@@ -52,7 +52,7 @@ export async function scrapeG1SP(limit = 20) {
   const page = await getPage(browser);
   try {
     await page.goto("https://g1.globo.com/sp/sao-paulo/ultimas-noticias/", {
-      waitUntil: "networkidle2",
+      waitUntil: "domcontentloaded",
       timeout: 30000,
     });
 
@@ -220,7 +220,7 @@ export async function scrapeOGlobo(limit = 20) {
   const page = await getPage(browser);
   try {
     await page.goto("https://oglobo.globo.com/ultimas-noticias/", {
-      waitUntil: "networkidle2", // <— mudança: domcontentloaded → networkidle2
+      waitUntil: "domcontentloaded",
       timeout: 60000,
     });
 
