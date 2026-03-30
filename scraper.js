@@ -158,7 +158,7 @@ export async function scrapeFolhaSP(limit = 20) {
   const page = await getPage(browser);
   try {
     await page.goto("https://www1.folha.uol.com.br/ultimas-noticias/", {
-      waitUntil: "networkidle2",
+      waitUntil: "domcontentloaded",
       timeout: 30000,
     });
     await page.waitForSelector("script[data-sharebar-json]", {
