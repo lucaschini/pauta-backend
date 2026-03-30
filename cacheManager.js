@@ -54,8 +54,10 @@ export async function refreshSource(sourceId) {
 }
 
 export async function warmCache() {
-  console.log("[cache] aquecendo em paralelo...");
-  await Promise.allSettled(SOURCES.map((s) => refreshSource(s.id)));
+  console.log("[cache] aquecendo em série...");
+  for (const source of SOURCES) {
+    await refreshSource(source.id);
+  }
   console.log("[cache] pronto");
 }
 
