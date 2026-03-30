@@ -1,8 +1,6 @@
 import express from "express";
 import cors from "cors";
 import { createServer } from "http";
-import { join, dirname } from "path";
-import { fileURLToPath } from "url";
 
 import { SOURCES } from "./sources.js";
 import {
@@ -10,16 +8,13 @@ import {
   startAutoRefresh,
   refreshSource,
   getCached,
-  onUpdate,
   getCacheStatus,
 } from "./cacheManager.js";
-import { initWebSocket, getClientCount } from "./wsManager.js";
+import { initSSE, getClientCount } from "./sseManager.js";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
 const httpServer = createServer(app);
 const PORT = process.env.PORT || 3001;
-const CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutos
 
 app.use(
   cors({
@@ -73,7 +68,7 @@ app.get("/health", (req, res) => {
   res.json({
     status: "ok",
     uptime: process.uptime(),
-    wsClients: getClientCount(),
+    sseClients: getClientCount(),
     sources: getCacheStatus(),
   });
 });
@@ -82,7 +77,7 @@ app.get("/health", (req, res) => {
 
 httpServer.listen(PORT, () => {
   console.log(`Pauta backend em http://localhost:${PORT}`);
-  initWebSocket(httpServer);
-  startAutoRefresh(); // inicia os timers individuais por fonte
-  warmCache(); // aquece em paralelo
+  initSSE(app);
+  startAutoRefresh();
+  warmCache();
 });
