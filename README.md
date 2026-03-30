@@ -1,6 +1,6 @@
 # Pauta — Backend
 
-Servidor Node.js que agrega feeds RSS de portais de notícias e entrega como JSON limpo. Sem banco de dados — cada requisição busca os feeds na hora.
+Servidor Node.js que agrega feeds de portais de notícias e entrega como JSON limpo. Sem banco de dados — cada requisição busca os feeds na hora.
 
 ## Requisitos
 
@@ -93,50 +93,3 @@ Health check para monitoramento.
 ```
 
 ---
-
-## Adicionando fontes
-
-Edite o arquivo `sources.js`. Cada fonte precisa de um RSS público válido:
-
-```js
-{
-  id: 'agencia-brasil',
-  name: 'Agência Brasil',
-  url: 'agenciabrasil.ebc.com.br',
-  rssUrl: 'https://agenciabrasil.ebc.com.br/rss/ultimasnoticias/feed.xml',
-}
-```
-
----
-
-## Deploy no Railway
-
-1. Crie uma conta em [railway.app](https://railway.app)
-2. Crie um novo projeto → "Deploy from GitHub repo"
-3. Suba esse repositório no GitHub e conecte
-4. O Railway detecta Node automaticamente e usa `npm start`
-5. Pronto — você recebe uma URL pública como `https://pauta-backend.up.railway.app`
-
-## Deploy no Render
-
-1. Crie conta em [render.com](https://render.com)
-2. New → Web Service → conecte o repositório
-3. Build command: `npm install`
-4. Start command: `node server.js`
-5. Plano free funciona perfeitamente para esse uso
-
----
-
-## Integração com o frontend
-
-No `painel-noticias.html`, troque a lógica de RSS direto por:
-
-```js
-const API = 'http://localhost:3001'; // ou sua URL do Railway/Render
-
-async function fetchSource(source) {
-  const res = await fetch(`${API}/feed?sources=${source.id}&limit=20`);
-  const data = await res.json();
-  return data.feed[0].articles;
-}
-```
