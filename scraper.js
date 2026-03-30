@@ -213,7 +213,7 @@ export async function scrapeEstadaoSP(limit = 20) {
     });
     await page.waitForFunction(
       () => window.Fusion?.contentCache?.["story-feed-query"],
-      { timeout: 15000 },
+      { timeout: 25000 },
     );
 
     return await page.evaluate((limit) => {
