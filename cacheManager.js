@@ -6,7 +6,7 @@ const CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutos por fonte
 // { [sourceId]: { source, name, url, articles, count, fetchedAt, error } }
 const cache = {};
 
-// Callbacks registrados para notificação (ex: broadcast do WebSocket)
+// Callbacks registrados para notificação (ex: SSE/WebSocket)
 const listeners = [];
 
 export function onUpdate(fn) {
@@ -37,7 +37,6 @@ export async function refreshSource(sourceId) {
     notify(sourceId);
   } catch (err) {
     console.error(`[scraper] erro em ${sourceId}:`, err.message);
-    // Preserva dados antigos, só adiciona o erro
     cache[sourceId] = {
       ...(cache[sourceId] || {
         source: sourceId,
@@ -53,6 +52,7 @@ export async function refreshSource(sourceId) {
   }
 }
 
+// Aquece em série para não estourar RAM no boot
 export async function warmCache() {
   console.log("[cache] aquecendo em série...");
   for (const source of SOURCES) {
@@ -62,10 +62,17 @@ export async function warmCache() {
 }
 
 export function startAutoRefresh() {
-  SOURCES.forEach((source) => {
-    setInterval(() => refreshSource(source.id), CACHE_TTL_MS);
+  // Escalonamento: cada fonte começa em um momento diferente
+  // para evitar que todos os scrapers disparem ao mesmo tempo
+  SOURCES.forEach((source, index) => {
+    const offset = index * 30 * 1000; // 30s de intervalo entre fontes
+    setTimeout(() => {
+      setInterval(() => refreshSource(source.id), CACHE_TTL_MS);
+    }, offset);
   });
-  console.log(`[cache] auto-refresh a cada ${CACHE_TTL_MS / 1000}s por fonte`);
+  console.log(
+    `[cache] auto-refresh escalonado a cada ${CACHE_TTL_MS / 1000}s por fonte`,
+  );
 }
 
 export function getCached(sourceId) {
