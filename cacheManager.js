@@ -3,10 +3,13 @@ import { SOURCES } from "./sources.js";
 
 const CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutos por fonte
 
+// Horário de operação: 12h–20h horário de Brasília (15h–23h UTC)
+const OPERATING_START_UTC = 15;
+const OPERATING_END_UTC = 23;
+
 // { [sourceId]: { source, name, url, articles, count, fetchedAt, error } }
 const cache = {};
 
-// Callbacks registrados para notificação (ex: SSE/WebSocket)
 const listeners = [];
 
 export function onUpdate(fn) {
@@ -16,6 +19,11 @@ export function onUpdate(fn) {
 function notify(sourceId) {
   const payload = { type: "update", source: sourceId, data: cache[sourceId] };
   listeners.forEach((fn) => fn(payload));
+}
+
+export function isWithinOperatingHours() {
+  const hour = new Date().getUTCHours();
+  return hour >= OPERATING_START_UTC && hour < OPERATING_END_UTC;
 }
 
 export async function refreshSource(sourceId) {
@@ -52,27 +60,30 @@ export async function refreshSource(sourceId) {
   }
 }
 
-// Aquece em série para não estourar RAM no boot
 export async function warmCache() {
-  console.log("[cache] aquecendo em série...");
-  for (const source of SOURCES) {
-    await refreshSource(source.id);
+  if (!isWithinOperatingHours()) {
+    console.log("[cache] fora do horário de operação, warmCache ignorado");
+    return;
   }
+  console.log("[cache] aquecendo em paralelo...");
+  await Promise.allSettled(SOURCES.map((s) => refreshSource(s.id)));
   console.log("[cache] pronto");
 }
 
 export function startAutoRefresh() {
-  // Escalonamento: cada fonte começa em um momento diferente
-  // para evitar que todos os scrapers disparem ao mesmo tempo
   SOURCES.forEach((source, index) => {
-    const offset = index * 30 * 1000; // 30s de intervalo entre fontes
+    const offset = index * 30 * 1000;
     setTimeout(() => {
-      setInterval(() => refreshSource(source.id), CACHE_TTL_MS);
+      setInterval(() => {
+        if (isWithinOperatingHours()) {
+          refreshSource(source.id);
+        } else {
+          console.log(`[cache] fora do horário, pulando ${source.id}`);
+        }
+      }, CACHE_TTL_MS);
     }, offset);
   });
-  console.log(
-    `[cache] auto-refresh escalonado a cada ${CACHE_TTL_MS / 1000}s por fonte`,
-  );
+  console.log(`[cache] auto-refresh a cada ${CACHE_TTL_MS / 1000}s por fonte`);
 }
 
 export function getCached(sourceId) {
