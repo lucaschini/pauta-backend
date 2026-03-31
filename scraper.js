@@ -1,5 +1,5 @@
 import puppeteer from "puppeteer";
-import { createHash } from "crypto";
+import { enqueue } from "./queue.js";
 
 const BROWSER_ARGS = [
   "--no-sandbox",
@@ -20,20 +20,6 @@ const BROWSER_ARGS = [
 ];
 
 let browserInstance = null;
-// Semáforo: limita scrapes simultâneos para evitar múltiplos Chromes em paralelo
-let activeScrapes = 0;
-const MAX_CONCURRENT = 2;
-
-async function acquireSlot() {
-  while (activeScrapes >= MAX_CONCURRENT) {
-    await new Promise((resolve) => setTimeout(resolve, 500));
-  }
-  activeScrapes++;
-}
-
-function releaseSlot() {
-  activeScrapes--;
-}
 
 async function getBrowser() {
   if (!browserInstance || !browserInstance.connected) {
@@ -63,30 +49,17 @@ async function getPage(browser) {
   return page;
 }
 
-// ─── Hash de título para deduplicação ────────────────────────────────────────
-function titleHash(title) {
-  const normalized = title
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "") // remove acentos
-    .replace(/[^a-z0-9\s]/g, "") // remove pontuação
-    .replace(/\s+/g, " ") // colapsa espaços
-    .trim();
-  return createHash("sha1").update(normalized).digest("hex").slice(0, 12);
-}
-
 function dedup(articles) {
   const seen = new Set();
   return articles.filter((a) => {
-    if (!a.title || seen.has(a.id)) return false;
-    seen.add(a.id);
+    if (!a.url || !a.title || seen.has(a.url)) return false;
+    seen.add(a.url);
     return true;
   });
 }
 
 // ─── G1 SP ────────────────────────────────────────────────────────────────────
-export async function scrapeG1SP(limit = 20) {
-  await acquireSlot();
+async function _scrapeG1SP(limit = 20) {
   const browser = await getBrowser();
   const page = await getPage(browser);
   try {
@@ -102,7 +75,6 @@ export async function scrapeG1SP(limit = 20) {
     return await page.evaluate((limit) => {
       const results = [];
 
-      // ESTRATÉGIA 1: JSON embutido via bstn
       try {
         const embedData = window.bstn?.debugEmbedData?.();
         if (embedData?.items?.length) {
@@ -113,7 +85,6 @@ export async function scrapeG1SP(limit = 20) {
             if (!title || title.length < 10 || !url?.includes(".ghtml"))
               continue;
             results.push({
-              id: null, // preenchido fora do evaluate
               source: "g1",
               title,
               url,
@@ -124,7 +95,6 @@ export async function scrapeG1SP(limit = 20) {
         }
       } catch (e) {}
 
-      // ESTRATÉGIA 2: fallback DOM
       const cards = document.querySelectorAll("div.feed-post");
       for (const card of cards) {
         if (results.length >= limit) break;
@@ -136,7 +106,6 @@ export async function scrapeG1SP(limit = 20) {
         if (title.length < 10) continue;
         const dateEl = card.querySelector(".feed-post-datetime");
         results.push({
-          id: null,
           source: "g1",
           title,
           url: a.href,
@@ -147,13 +116,11 @@ export async function scrapeG1SP(limit = 20) {
     }, limit);
   } finally {
     await page.close();
-    releaseSlot();
   }
 }
 
 // ─── FOLHA ────────────────────────────────────────────────────────────────────
-export async function scrapeFolhaSP(limit = 20) {
-  await acquireSlot();
+async function _scrapeFolhaSP(limit = 20) {
   const browser = await getBrowser();
   const page = await getPage(browser);
   try {
@@ -178,32 +145,22 @@ export async function scrapeFolhaSP(limit = 20) {
             const url = data.url;
             const title = data.title?.replace(/\s+/g, " ").trim();
             const publishedAt = data.cover_date || null;
-
             if (!url || !title || title.length < 10) return;
             if (!url.match(/\/20\d{2}\/\d{2}\/[^/]+\.shtml/)) return;
             if (seen.has(url)) return;
             seen.add(url);
-
-            results.push({
-              id: null,
-              source: "folha",
-              title,
-              url,
-              publishedAt,
-            });
+            results.push({ source: "folha", title, url, publishedAt });
           } catch (e) {}
         });
       return results;
     }, limit);
   } finally {
     await page.close();
-    releaseSlot();
   }
 }
 
 // ─── ESTADÃO ──────────────────────────────────────────────────────────────────
-export async function scrapeEstadaoSP(limit = 20) {
-  await acquireSlot();
+async function _scrapeEstadaoSP(limit = 20) {
   const browser = await getBrowser();
   const page = await getPage(browser);
   try {
@@ -211,52 +168,74 @@ export async function scrapeEstadaoSP(limit = 20) {
       waitUntil: "domcontentloaded",
       timeout: 60000,
     });
-    await page.waitForFunction(
-      () => window.Fusion?.contentCache?.["story-feed-query"],
-      { timeout: 25000 },
-    );
+    await page
+      .waitForFunction(
+        () => window.Fusion?.contentCache?.["story-feed-query"],
+        { timeout: 25000 },
+      )
+      .catch(() => {});
 
     return await page.evaluate((limit) => {
       const results = [];
       const seen = new Set();
+
+      // ESTRATÉGIA 1: Fusion.contentCache
       try {
-        const feedCache = window.Fusion.contentCache["story-feed-query"];
-        for (const cacheVal of Object.values(feedCache)) {
-          const elements = cacheVal?.data?.content_elements;
-          if (!Array.isArray(elements)) continue;
-          for (const item of elements) {
+        const feedCache = window.Fusion?.contentCache?.["story-feed-query"];
+        if (feedCache) {
+          for (const cacheVal of Object.values(feedCache)) {
+            const elements = cacheVal?.data?.content_elements;
+            if (!Array.isArray(elements)) continue;
+            for (const item of elements) {
+              if (results.length >= limit) break;
+              if (item.type !== "story") continue;
+              const title = item.headlines?.basic?.replace(/\s+/g, " ").trim();
+              if (!title || title.length < 10) continue;
+              const url =
+                "https://www.estadao.com.br" + (item.canonical_url || "");
+              if (seen.has(url)) continue;
+              seen.add(url);
+              results.push({
+                source: "estadao",
+                title,
+                url,
+                publishedAt:
+                  item.display_date || item.first_publish_date || null,
+              });
+            }
             if (results.length >= limit) break;
-            if (item.type !== "story") continue;
-            const title = item.headlines?.basic?.replace(/\s+/g, " ").trim();
-            if (!title || title.length < 10) continue;
-            const url =
-              "https://www.estadao.com.br" + (item.canonical_url || "");
-            if (seen.has(url)) continue;
-            seen.add(url);
-            const publishedAt =
-              item.display_date || item.first_publish_date || null;
-            results.push({
-              id: null,
-              source: "estadao",
-              title,
-              url,
-              publishedAt,
-            });
           }
-          if (results.length >= limit) break;
+          if (results.length > 0) return results;
         }
       } catch (e) {}
+
+      // ESTRATÉGIA 2: fallback DOM
+      const cards = document.querySelectorAll("article, [data-type='story']");
+      for (const card of cards) {
+        if (results.length >= limit) break;
+        const a = card.querySelector("a[href*='estadao.com.br']");
+        const titleEl = card.querySelector("h2, h3");
+        if (!a || !titleEl) continue;
+        const title = titleEl.textContent?.replace(/\s+/g, " ").trim();
+        if (!title || title.length < 10) continue;
+        if (seen.has(a.href)) continue;
+        seen.add(a.href);
+        results.push({
+          source: "estadao",
+          title,
+          url: a.href,
+          publishedAt: null,
+        });
+      }
       return results;
     }, limit);
   } finally {
     await page.close();
-    releaseSlot();
   }
 }
 
 // ─── O GLOBO ──────────────────────────────────────────────────────────────────
-export async function scrapeOGlobo(limit = 20) {
-  await acquireSlot();
+async function _scrapeOGlobo(limit = 20) {
   const browser = await getBrowser();
   const page = await getPage(browser);
   try {
@@ -272,7 +251,6 @@ export async function scrapeOGlobo(limit = 20) {
     return await page.evaluate((limit) => {
       const results = [];
 
-      // ESTRATÉGIA 1: JSON embutido
       try {
         const embedData = window.bstn?.debugEmbedData?.();
         if (embedData?.items?.length) {
@@ -283,7 +261,6 @@ export async function scrapeOGlobo(limit = 20) {
             if (!title || title.length < 10 || !url?.includes(".ghtml"))
               continue;
             results.push({
-              id: null,
               source: "oglobo",
               title,
               url,
@@ -294,7 +271,6 @@ export async function scrapeOGlobo(limit = 20) {
         }
       } catch (e) {}
 
-      // ESTRATÉGIA 2: fallback DOM
       const cards = document.querySelectorAll("div.feed-post");
       for (const card of cards) {
         if (results.length >= limit) break;
@@ -306,7 +282,6 @@ export async function scrapeOGlobo(limit = 20) {
         if (title.length < 10) continue;
         const dateEl = card.querySelector("span.feed-post-datetime");
         results.push({
-          id: null,
           source: "oglobo",
           title,
           url: a.href,
@@ -317,39 +292,31 @@ export async function scrapeOGlobo(limit = 20) {
     }, limit);
   } finally {
     await page.close();
-    releaseSlot();
   }
 }
 
 // ─── DISPATCHER ───────────────────────────────────────────────────────────────
+// Todas as funções de scrape passam pela fila global — nunca rodam em paralelo
 export async function scrapeSource(source, limit = 20) {
-  let articles;
-  switch (source.id) {
-    case "g1":
-      articles = await scrapeG1SP(limit);
-      break;
-    case "folha":
-      articles = await scrapeFolhaSP(limit);
-      break;
-    case "estadao":
-      articles = await scrapeEstadaoSP(limit);
-      break;
-    case "oglobo":
-      articles = await scrapeOGlobo(limit);
-      break;
-    default:
-      throw new Error(`Scraper não implementado para: ${source.id}`);
-  }
+  const scrapers = {
+    g1: () => _scrapeG1SP(limit),
+    folha: () => _scrapeFolhaSP(limit),
+    estadao: () => _scrapeEstadaoSP(limit),
+    oglobo: () => _scrapeOGlobo(limit),
+  };
 
-  // Aplica hash de título aqui, fora do evaluate (sem acesso ao crypto no browser)
-  const withHash = articles.map((a) => ({ ...a, id: titleHash(a.title) }));
-  const deduped = dedup(withHash);
+  const fn = scrapers[source.id];
+  if (!fn) throw new Error(`Scraper não implementado para: ${source.id}`);
+
+  // Enfileira — só executa quando tiver slot disponível
+  const articles = await enqueue(fn);
+  const deduped = dedup(articles);
 
   return {
     source: source.id,
     name: source.name,
     url: source.url,
-    articles: deduped,
+    articles: deduped.map((a) => ({ ...a, id: a.url })),
     count: deduped.length,
   };
 }

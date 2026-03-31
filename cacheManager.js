@@ -1,5 +1,6 @@
 import { scrapeSource } from "./scraper.js";
 import { SOURCES } from "./sources.js";
+import { getQueueStatus } from "./queue.js";
 
 const CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutos por fonte
 
@@ -33,7 +34,9 @@ export async function refreshSource(sourceId) {
     return;
   }
 
-  console.log(`[scraper] buscando ${sourceId}...`);
+  console.log(
+    `[scraper] enfileirando ${sourceId}... ${JSON.stringify(getQueueStatus())}`,
+  );
   try {
     const result = await scrapeSource(source, 20);
     cache[sourceId] = {
@@ -60,19 +63,21 @@ export async function refreshSource(sourceId) {
   }
 }
 
+// warmCache dispara tudo em paralelo — a fila em queue.js garante
+// que só MAX_CONCURRENT scrapers rodam de cada vez
 export async function warmCache() {
   if (!isWithinOperatingHours()) {
     console.log("[cache] fora do horário de operação, warmCache ignorado");
     return;
   }
-  console.log("[cache] aquecendo em paralelo...");
+  console.log("[cache] aquecendo (fila controla concorrência)...");
   await Promise.allSettled(SOURCES.map((s) => refreshSource(s.id)));
   console.log("[cache] pronto");
 }
 
 export function startAutoRefresh() {
   SOURCES.forEach((source, index) => {
-    const offset = index * 30 * 1000;
+    const offset = index * 30 * 1000; // escalonamento de 30s entre fontes
     setTimeout(() => {
       setInterval(() => {
         if (isWithinOperatingHours()) {
