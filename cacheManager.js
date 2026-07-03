@@ -5,7 +5,7 @@ import { getQueueStatus } from "./queue.js";
 const CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutos por fonte
 
 // Horário de operação: 12h–20h horário de Brasília (15h–23h UTC)
-const OPERATING_START_UTC = 15;
+const OPERATING_START_UTC = 12;
 const OPERATING_END_UTC = 23;
 
 // { [sourceId]: { source, name, url, articles, count, fetchedAt, error } }
